@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 demo_out/
 .DS_Store
+
 data/
 *.tar
 *.mp4
