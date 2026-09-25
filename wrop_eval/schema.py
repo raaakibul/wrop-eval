@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 import numpy as np
+import json
 
 
 @dataclass
@@ -39,3 +40,46 @@ class GroundTruthTrajectory:
 
     def target_objects(self) -> List[ObjectTrack]:
         return [o for o in self.objects.values() if o.is_target]
+    
+
+def load_scene_state_graph(path: str) -> GroundTruthTrajectory:
+    with open(path, "r", encoding="utf-8") as f:
+        d = json.load(f)
+
+    fps = int(d.get("fps", 24))
+    frame_start = int(d["frame_start"])
+    frame_end = int(d["frame_end"])
+    n = frame_end - frame_start + 1
+
+    meta = d.get("objects", {})
+    tracks: Dict[str, ObjectTrack] = {
+        name: ObjectTrack(
+            name=name,
+            shape=m.get("shape", ""),
+            role=m.get("role", ""),
+            color=m.get("color", ""),
+            is_target=bool(m.get("is_target", False)),
+            loc=np.full((n, 3), np.nan, dtype=np.float64),
+            rot=np.full((n, 3), np.nan, dtype=np.float64),
+        )
+        for name, m in meta.items()
+    }
+
+    for fr in d.get("frames", []):
+        idx = int(fr["frame"]) - frame_start
+        if not (0 <= idx < n):
+            continue
+        for name, st in fr.get("objects", {}).items():
+            if name not in tracks:
+                # object appears in frames but not in the objects manifest
+                tracks[name] = ObjectTrack(
+                    name=name,
+                    loc=np.full((n, 3), np.nan, dtype=np.float64),
+                    rot=np.full((n, 3), np.nan, dtype=np.float64),
+                )
+            tracks[name].loc[idx] = st.get("loc", [np.nan] * 3)
+            if "rot" in st:
+                tracks[name].rot[idx] = st["rot"]
+
+    return GroundTruthTrajectory(fps=fps, frame_start=frame_start,
+                                  frame_end=frame_end, objects=tracks)
