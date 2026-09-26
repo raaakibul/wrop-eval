@@ -83,3 +83,50 @@ def load_scene_state_graph(path: str) -> GroundTruthTrajectory:
 
     return GroundTruthTrajectory(fps=fps, frame_start=frame_start,
                                   frame_end=frame_end, objects=tracks)
+    
+
+
+def _from_npz_dict(npz: np.lib.npyio.NpzFile) -> GroundTruthTrajectory:
+    keys = set(npz.files)
+
+    # Convention A: explicit position tensor + name list.
+    pos_key = next((k for k in ("positions", "loc", "locations") if k in keys), None)
+    name_key = next((k for k in ("object_names", "names", "objects") if k in keys), None)
+    fps = int(npz["fps"]) if "fps" in keys else 24
+
+    if pos_key is not None:
+        pos = np.asarray(npz[pos_key])  # expected (n_frames, n_objects, 3)
+        names = (list(npz[name_key]) if name_key is not None
+                 else [f"obj_{i}" for i in range(pos.shape[1])])
+        n = pos.shape[0]
+        is_target = (npz["is_target"] if "is_target" in keys
+                     else np.zeros(pos.shape[1], dtype=bool))
+        tracks = {}
+        for i, nm in enumerate(names):
+            nm = nm.decode() if isinstance(nm, bytes) else str(nm)
+            tracks[nm] = ObjectTrack(
+                name=nm, loc=pos[:, i, :].astype(np.float64),
+                is_target=bool(is_target[i]) if hasattr(is_target, "__len__") else False,
+            )
+        return GroundTruthTrajectory(fps=fps, frame_start=1, frame_end=n, objects=tracks)
+
+    # Convention B (fallback): every (n_frames, 3) float array is one object's track.
+    tracks = {}
+    n = None
+    for k in npz.files:
+        arr = np.asarray(npz[k])
+        if arr.ndim == 2 and arr.shape[1] == 3 and np.issubdtype(arr.dtype, np.floating):
+            n = arr.shape[0] if n is None else n
+            tracks[k] = ObjectTrack(name=k, loc=arr.astype(np.float64))
+    if not tracks:
+        raise ValueError(
+            f"trajectory.npz keys {sorted(keys)} did not match any known "
+            "layout. Patch wrop_eval.schema._from_npz_dict for your file."
+        )
+    return GroundTruthTrajectory(fps=fps, frame_start=1, frame_end=n, objects=tracks)
+
+
+
+def load_trajectory_npz(path: str) -> GroundTruthTrajectory:
+    with np.load(path, allow_pickle=True) as npz:
+        return _from_npz_dict(npz)
