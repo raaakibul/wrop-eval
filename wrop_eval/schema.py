@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import json
+import os
 
 
 @dataclass
@@ -130,3 +131,25 @@ def _from_npz_dict(npz: np.lib.npyio.NpzFile) -> GroundTruthTrajectory:
 def load_trajectory_npz(path: str) -> GroundTruthTrajectory:
     with np.load(path, allow_pickle=True) as npz:
         return _from_npz_dict(npz)
+    
+    
+def load_ground_truth(sample_dir: str) -> GroundTruthTrajectory:
+    ssg = os.path.join(sample_dir, "scene_state_graph.json")
+    npz = os.path.join(sample_dir, "trajectory.npz")
+    if os.path.isfile(ssg):
+        return load_scene_state_graph(ssg)
+    if os.path.isfile(npz):
+        return load_trajectory_npz(npz)
+    raise FileNotFoundError(
+        f"No scene_state_graph.json or trajectory.npz in {sample_dir}"
+    )
+
+
+def load_metadata(sample_dir: str) -> dict:
+    path = os.path.join(sample_dir, "metadata.json")
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+    
+    
