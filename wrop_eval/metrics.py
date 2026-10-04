@@ -33,3 +33,59 @@ def _fit_const_accel_residual(xyz: np.ndarray) -> float:
 
 def is_kinematically_gated(gt_input_window: np.ndarray, tolerance: float) -> bool:
     return _fit_const_accel_residual(gt_input_window) <= tolerance
+
+
+@dataclass
+class MatchedPair:
+    gt_name: str
+    pred_id: Optional[str]
+    transform_residual: float
+    valid_frames: np.ndarray
+
+
+def match_predicted_to_gt(gt_targets: List[ObjectTrack],
+                           pred_tracks: Dict[str, np.ndarray]) -> List[MatchedPair]:
+    matches = []
+    for gt in gt_targets:
+        world_xy = gt.loc[:, [0, 2]]
+        best = None
+        for pid, arr in pred_tracks.items():
+            image_xy = arr[:, :2]
+            t, resid, valid = align.fit_and_score(world_xy, image_xy)
+            if t is None:
+                continue
+            mean_resid = float(np.nanmean(resid))
+            if best is None or mean_resid < best[0]:
+                best = (mean_resid, pid, resid, valid)
+        if best is None:
+            matches.append(MatchedPair(gt.name, None, np.inf,
+                                        np.zeros(len(gt.loc), dtype=bool)))
+        else:
+            matches.append(MatchedPair(gt.name, best[1], best[0], best[3]))
+    return matches
+
+@dataclass
+class SampleScore:
+    sample_id: str
+    task_id: str
+    category: str
+    disappearance_rate: float
+    identity_swap_rate: float
+    hallucinated_object_rate: float
+    reappearance_position_error: Optional[float]  # None if not gated
+    aligned_ade: Optional[float]
+    aligned_fde: Optional[float]
+    gated: bool
+    n_gt_objects: int
+    n_matched: int
+    ops: float = 0.0
+
+HARD_PENALTY_WEIGHT = 1.0
+SOFT_PENALTY_WEIGHT = 0.5
+SOFT_ERROR_SCALE = 0.15
+
+
+def _squash(x: Optional[float]) -> float:
+    if x is None or not np.isfinite(x):
+        return 0.0
+    return float(1.0 - np.exp(-x / SOFT_ERROR_SCALE))
