@@ -46,3 +46,14 @@ def aggregate_model_report(scores: List[SampleScore]) -> dict:
         "n_total_samples": len(scores),
     }
     return report
+
+
+def save_report(report: dict, path: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+
+
+def scores_to_jsonl(scores: List[SampleScore], path: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        for s in scores:
+            f.write(json.dumps(asdict(s)) + "\n")

@@ -10,3 +10,4 @@ data/
 *.tar
 *.mp4
 *.npz
+test_out/
