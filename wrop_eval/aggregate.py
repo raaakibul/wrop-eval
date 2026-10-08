@@ -57,3 +57,21 @@ def scores_to_jsonl(scores: List[SampleScore], path: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for s in scores:
             f.write(json.dumps(asdict(s)) + "\n")
+            
+def markdown_table(report: dict, model_name: str = "model") -> str:
+    lines = [f"### Object Permanence Score — {model_name}",
+             "", f"**Overall OPS: {report['overall']['OPS']:.3f}**"
+             f"  (n={report['n_total_samples']} samples)", "",
+             "| Category | n | OPS | Disappearance | Identity swap | Hallucinated | RPE | ADE |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for cat, s in report["by_category"].items():
+        def fmt(v):
+            return f"{v:.3f}" if v is not None else "—"
+        lines.append(
+            f"| {cat} | {s['n_samples']} | {fmt(s['OPS'])} | "
+            f"{fmt(s['disappearance_rate'])} | {fmt(s['identity_swap_rate'])} | "
+            f"{fmt(s['hallucinated_object_rate'])} | {fmt(s['reappearance_position_error'])} | "
+            f"{fmt(s['aligned_ade'])} |"
+        )
+    return "\n".join(lines)
+
