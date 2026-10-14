@@ -63,3 +63,43 @@ def _events_for_model(event, behavior: str):
         drift_xy1 = (event["xy1"][0], min(1.0, event["xy1"][1] + 0.22))
         return [dict(ev, xy1=drift_xy1)]
     raise ValueError(f"unknown behavior: {behavior}")
+
+MODELS = ["correct", "position_drift", "identity_swap", "disappear"]
+
+
+def score_all_models(video_dir: str):
+    """Render a synthetic video for every (task, behavior) pair, track it,
+    score it, and return {behavior: [SampleScore, ...]}."""
+    os.makedirs(video_dir, exist_ok=True)
+    tracker = BaselineBlobTracker()
+    per_model_scores = {m: [] for m in MODELS}
+
+    for task_name, category, event in TASK_SPECS:
+        gt = _make_gt(event)
+        for behavior in MODELS:
+            events = _events_for_model(event, behavior)
+            vpath = os.path.join(video_dir, f"{task_name}__{behavior}.mp4")
+            make_synthetic_video(vpath, events, n_frames=N_TOTAL_FRAMES, fps=FPS)
+            pred_tracks, pred_colors = tracker.track_with_color(vpath)
+            per_model_scores[behavior].append(score_sample(
+                sample_id=f"{task_name}_0000", task_id=task_name, category=category,
+                gt=gt, pred_tracks=pred_tracks, n_input_frames=N_INPUT_FRAMES,
+                pred_colors=pred_colors,
+            ))
+    return per_model_scores
+
+def write_reports(per_model_scores, out_dir: str):
+    """Aggregate and save one JSON report, one JSONL score file, and one
+    markdown table per behavior. Returns {behavior: report_dict}."""
+    os.makedirs(out_dir, exist_ok=True)
+    reports = {}
+    for model, scores in per_model_scores.items():
+        report = aggregate.aggregate_model_report(scores)
+        reports[model] = report
+        aggregate.save_report(report, os.path.join(out_dir, f"report_{model}.json"))
+        aggregate.scores_to_jsonl(scores, os.path.join(out_dir, f"scores_{model}.jsonl"))
+        # utf-8 matters on Windows: the table contains the "—" character.
+        with open(os.path.join(out_dir, f"report_{model}.md"), "w", encoding="utf-8") as f:
+            f.write(aggregate.markdown_table(report, model_name=model))
+    return reports
+
