@@ -103,3 +103,63 @@ def write_reports(per_model_scores, out_dir: str):
             f.write(aggregate.markdown_table(report, model_name=model))
     return reports
 
+# Mock human Elo ratings, chosen so a worse failure mode gets a lower
+# rating. In a real study these come from the WROP leaderboard.
+MOCK_ELO = {"correct": 1650, "position_drift": 1520,
+            "identity_swap": 1400, "disappear": 1280}
+
+
+def validate_against_mock_elo(reports, out_dir: str):
+    """Correlate each behavior's overall OPS with its mock Elo, save the
+    result as validation_summary.json, and return the summary dict."""
+    ops_per_model = {m: reports[m]["overall"]["OPS"] for m in MODELS}
+    corr = validate.correlate(ops_per_model, MOCK_ELO)
+    summary = {"ops_per_model": ops_per_model, "mock_elo": MOCK_ELO,
+               "correlation": corr}
+    with open(os.path.join(out_dir, "validation_summary.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    return summary
+
+def plot_category_breakdown(reports, out_path: str):
+    """Grouped bar chart: OPS per cognitive category, one bar per behavior."""
+    import matplotlib
+    matplotlib.use("Agg")  # draw to a file, no window needed
+    import matplotlib.pyplot as plt
+
+    cats = sorted(set().union(*[r["by_category"].keys() for r in reports.values()]))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    width = 0.8 / len(MODELS)
+    x = np.arange(len(cats))
+    for i, m in enumerate(MODELS):
+        vals = [reports[m]["by_category"].get(c, {}).get("OPS") or 0 for c in cats]
+        ax.bar(x + i * width, vals, width=width, label=m)
+    ax.set_xticks(x + width * (len(MODELS) - 1) / 2)
+    ax.set_xticklabels(cats, rotation=20, ha="right")
+    ax.set_ylabel("Object Permanence Score (OPS)")
+    ax.set_title("OPS per cognitive category (synthetic models)")
+    ax.set_ylim(0, 1.05)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_ops_vs_elo(summary, out_path: str):
+    """Scatter of automatic OPS against (mock) Elo, one point per behavior."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    xs = [summary["ops_per_model"][m] for m in MODELS]
+    ys = [summary["mock_elo"][m] for m in MODELS]
+    fig, ax = plt.subplots(figsize=(5, 4.5))
+    ax.scatter(xs, ys)
+    for m, x, y in zip(MODELS, xs, ys):
+        ax.annotate(m, (x, y), textcoords="offset points", xytext=(5, 5), fontsize=8)
+    ax.set_xlabel("Automatic OPS")
+    ax.set_ylabel("Human Elo (mock)")
+    ax.set_title("OPS vs. Elo")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
