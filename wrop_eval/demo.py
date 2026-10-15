@@ -163,3 +163,31 @@ def plot_ops_vs_elo(summary, out_path: str):
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
+    
+def run_demo(out_dir: str):
+    os.makedirs(out_dir, exist_ok=True)
+    scores = score_all_models(os.path.join(out_dir, "videos"))
+    reports = write_reports(scores, out_dir)
+    summary = validate_against_mock_elo(reports, out_dir)
+    plot_category_breakdown(reports, os.path.join(out_dir, "category_breakdown.png"))
+    plot_ops_vs_elo(summary, os.path.join(out_dir, "ops_vs_elo.png"))
+
+    print("=== Per-model OPS (automatic) vs mock Elo ===")
+    for m in MODELS:
+        print(f"  {m:16s} OPS={summary['ops_per_model'][m]:.3f}   Elo={MOCK_ELO[m]}")
+    corr = summary["correlation"]
+    print(f"\nSpearman r = {corr['spearman_r']:.3f}")
+    print(f"Pearson  r = {corr['pearson_r']:.3f}")
+    print(f"\nOutputs written to: {out_dir}")
+    return summary, reports
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--out-dir", default="./demo_out")
+    args = p.parse_args(argv)
+    run_demo(args.out_dir)
+
+
+if __name__ == "__main__":
+    main()
