@@ -45,8 +45,10 @@ class BaselineBlobTracker:
 
     def track_with_color(self, video_path: str):
         """Like `track`, but also returns {track_id: (n_frames,3) mean
-        BGR color per frame, NaN where not observed} -- used later for
-        the identity-swap check in metrics.py."""
+        BGR color per frame, NaN where not observed}. Lost tracks keep
+        moving along their last velocity, so an object that reappears
+        after an occlusion is re-associated with its old track instead of
+        spawning a new one."""
         cap = cv2.VideoCapture(video_path)
         frames = []
         while True:
@@ -57,6 +59,7 @@ class BaselineBlobTracker:
         cap.release()
         if not frames:
             return {}, {}
+
         idxs = np.linspace(0, len(frames) - 1, min(15, len(frames))).astype(int)
         bg = np.median(np.stack([frames[i] for i in idxs], axis=0), axis=0).astype(np.uint8)
 
@@ -64,7 +67,9 @@ class BaselineBlobTracker:
         tracks: Dict[str, List[Optional[tuple]]] = {}
         track_colors: Dict[str, List[Optional[np.ndarray]]] = {}
         next_id = 0
-        active: Dict[str, dict] = {}  # id -> last known {xy, color}
+        # id -> {"xy": predicted/last position, "vel": per-frame velocity,
+        #        "hist": last few real detections as (frame, x, y)}
+        active: Dict[str, dict] = {}
 
         for t, fr in enumerate(frames):
             blobs = self._detect_blobs(fr, bg)
@@ -82,15 +87,28 @@ class BaselineBlobTracker:
                 if tid not in unmatched_tracks or bi in used_blobs:
                     continue
                 b = blobs[bi]
+                st = active[tid]
+                hist = st["hist"] + [(t, b["xy"][0], b["xy"][1])]
+                hist = hist[-10:]  # smooth velocity over the last 10 detections
+                if len(hist) >= 2 and hist[-1][0] > hist[0][0]:
+                    dt = hist[-1][0] - hist[0][0]
+                    vel = ((hist[-1][1] - hist[0][1]) / dt,
+                           (hist[-1][2] - hist[0][2]) / dt)
+                else:
+                    vel = (0.0, 0.0)
                 tracks[tid][t] = (b["xy"][0], b["xy"][1], 1.0)
                 track_colors[tid][t] = b["color"]
-                active[tid] = {"xy": b["xy"], "color": b["color"]}
+                active[tid] = {"xy": b["xy"], "vel": vel, "hist": hist}
                 unmatched_tracks.discard(tid)
                 used_blobs.add(bi)
 
+            # Unmatched tracks are unobserved this frame (possibly truly
+            # occluded) but keep drifting along their last velocity.
             for tid in unmatched_tracks:
                 tracks[tid][t] = None
                 track_colors[tid][t] = None
+                st = active[tid]
+                st["xy"] = (st["xy"][0] + st["vel"][0], st["xy"][1] + st["vel"][1])
 
             if len(active) < self.max_tracks:
                 for bi, b in enumerate(blobs):
@@ -102,7 +120,8 @@ class BaselineBlobTracker:
                     track_colors[tid] = [None] * n_frames
                     tracks[tid][t] = (b["xy"][0], b["xy"][1], 1.0)
                     track_colors[tid][t] = b["color"]
-                    active[tid] = {"xy": b["xy"], "color": b["color"]}
+                    active[tid] = {"xy": b["xy"], "vel": (0.0, 0.0),
+                                   "hist": [(t, b["xy"][0], b["xy"][1])]}
 
         positions, colors = {}, {}
         for tid, seq in tracks.items():
