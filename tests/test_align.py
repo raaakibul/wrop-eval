@@ -49,3 +49,40 @@ def test_fit_and_score_needs_three_frames():
     t, resid, valid = fit_and_score(world, image)
     assert t is None
     assert resid is None
+    
+    
+def _line(n=60):
+    x = np.linspace(0.1, 0.9, n)
+    return np.stack([x, np.full(n, 0.5)], axis=1)
+
+
+def test_all_frame_fit_hides_half_of_a_continuation_offset():
+    world = _line()
+    image = world.copy()
+    image[30:, 1] += 0.2
+    _, resid, _ = fit_and_score(world, image)
+    assert np.nanmean(resid[48:]) == pytest.approx(0.1, abs=0.01)
+
+
+def test_context_fit_exposes_the_full_continuation_offset():
+    world = _line()
+    image = world.copy()
+    image[30:, 1] += 0.2
+    t, resid, used = fit_and_score(world, image, fit_until=30)
+    assert used.sum() == 30
+    assert np.nanmean(resid[48:]) == pytest.approx(0.2, abs=0.01)
+    assert np.nanmax(resid[:30]) < 1e-6   # context is matched exactly
+
+
+def test_context_fit_refuses_a_stationary_object():
+    still = np.stack([np.full(60, 0.3), np.full(60, 0.5)], axis=1)
+    t, resid, _ = fit_and_score(still, still, fit_until=30)
+    assert t is None and resid is None
+
+
+def test_context_fit_needs_enough_visible_context_frames():
+    world = _line()
+    image = world.copy()
+    image[:28] = np.nan                    # only 2 context frames visible
+    t, resid, _ = fit_and_score(world, image, fit_until=30)
+    assert t is None

@@ -43,9 +43,16 @@ def fit_similarity(world_xy: np.ndarray, image_xy: np.ndarray) -> SimilarityTran
             best = (resid, t)
     return best[1]
 
-def fit_and_score(world_xy_full: np.ndarray, image_xy_full: np.ndarray):
+def fit_and_score(world_xy_full: np.ndarray, image_xy_full: np.ndarray,
+                  fit_until=None, min_spread: float = 1e-3):
     valid = (~np.isnan(world_xy_full).any(axis=-1)) & (~np.isnan(image_xy_full).any(axis=-1))
+    if fit_until is not None:
+        window = np.zeros(len(valid), dtype=bool)
+        window[:fit_until] = True
+        valid = valid & window
     if valid.sum() < 3:
+        return None, None, valid
+    if fit_until is not None and np.ptp(world_xy_full[valid], axis=0).max() < min_spread:
         return None, None, valid
     t = fit_similarity(world_xy_full[valid], image_xy_full[valid])
     pred = t.apply(world_xy_full)
