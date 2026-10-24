@@ -138,3 +138,28 @@ def test_position_error_lowers_score_but_is_not_a_hard_failure():
     assert bad.disappearance_rate == 0.0
     assert bad.identity_swap_rate == 0.0
     assert bad.ops < good.ops
+
+# --- context-only alignment ------------------------------------------------
+
+def test_offset_after_the_context_is_fully_penalized():
+    # The model matches the context exactly, then shifts by a constant 0.2.
+    shifted = _pred()
+    shifted[N_INPUT:, 1] += 0.2
+    s = score_sample("s", "t", "c", _gt(), {"p": shifted}, N_INPUT)
+    assert s.gated is True
+    assert s.reappearance_position_error == pytest.approx(0.2, abs=0.02)
+    assert s.aligned_ade == pytest.approx(0.2, abs=0.02)
+    assert s.ops < 0.9
+
+
+def test_stationary_object_is_not_marked_gated():
+    # No motion in the context -> the alignment scale is undetermined, so we
+    # must not claim the soft metrics were computed.
+    still = np.stack([np.full(N, 0.3), np.zeros(N), np.full(N, 0.5)], axis=1)
+    ball = ObjectTrack(name="ball", color="red", is_target=True, loc=still)
+    gt = GroundTruthTrajectory(fps=24, frame_start=1, frame_end=N, objects={"ball": ball})
+    pred = np.stack([np.full(N, 0.3), np.full(N, 0.5), np.ones(N)], axis=1)
+    s = score_sample("s", "t", "c", gt, {"p": pred}, N_INPUT)
+    assert s.gated is False
+    assert s.reappearance_position_error is None
+    assert s.disappearance_rate == 0.0

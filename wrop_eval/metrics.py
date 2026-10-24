@@ -143,10 +143,11 @@ def score_sample(sample_id: str, task_id: str, category: str,
                     tolerance=kinematic_tolerance * max(1.0, np.nanstd(gt_input)),
                 )
                 if gated:
-                    any_gated = True
                     world_xy = gtobj.loc[:, [0, 2]]
-                    t, resid, valid = align.fit_and_score(world_xy, pred_arr[:, :2])
+                    t, resid, valid = align.fit_and_score(
+                        world_xy, pred_arr[:, :2], fit_until=n_input_frames)
                     if t is not None:
+                        any_gated = True  # only count samples we could really score
                         tail_idx = np.arange(tail_start, n)
                         tail_resid = resid[tail_idx]
                         tail_resid = tail_resid[~np.isnan(tail_resid)]
