@@ -125,3 +125,25 @@ results/<model_name>/<task>_task/<sample_id>.mp4
 ```bash
 python -m wrop_eval.validate ops_per_model.json elo_per_model.json
 ```
+
+## Project layout
+
+```
+wrop_eval/
+  constants.py   clip geometry from the dataset card (60 input + 60 target frames)
+  schema.py      ground-truth data classes and loaders
+  taxonomy.py    task name -> cognitive category (a keyword heuristic, see Limitations)
+  colors.py      color name -> RGB, for the identity check
+  align.py       scale-and-shift alignment between world and image coordinates
+  tracker.py     baseline tracker, plus a synthetic video generator for tests
+  metrics.py     the scoring logic (gating, hard checks, soft checks, OPS)
+  aggregate.py   per-task / per-category / per-model reports
+  validate.py    correlation of OPS with human scores
+  cli.py         score a model over a benchmark-style folder
+  demo.py        end-to-end synthetic demonstration
+scripts/
+  inspect_dataset.py       download one small task archive and print its real file layout
+  make_fake_benchmark.py   build a tiny fake benchmark for trying the CLI
+tests/                     unit and end-to-end tests
+```
+
