@@ -64,3 +64,64 @@ OPS  = 1 - (1.0 * hard + 0.5 * soft) / 1.5
 These weights are simple choices, not tuned values. They are the first thing to revisit once real data is available.
 
 **4. Reporting.** Scores are averaged per task, per cognitive category, and per model, and a validation script correlates per-model OPS with human leaderboard scores.
+
+
+
+## Quickstart
+
+Requires Python 3.10+.
+
+```bash
+git clone ..... 
+cd wrop-eval
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**Run the tests**
+
+```bash
+python -m pytest tests -q
+```
+
+**Run the synthetic demo.** It renders tiny videos of four made-up "models" (one correct, three with a typical failure), scores them, and compares the scores to a *mock* Elo ranking.
+
+```bash
+python -m wrop_eval.demo --out-dir demo_out
+```
+
+Expected output (the exact digits can vary slightly):
+
+```
+correct          OPS=0.990   Elo=1650
+position_drift   OPS=0.799   Elo=1520
+identity_swap    OPS=0.767   Elo=1400
+disappear        OPS=0.778   Elo=1280
+Spearman r = 0.800
+```
+
+The Elo values are invented for the demo, so this only shows that the machinery runs. It says nothing about real models. Charts and per-model reports are written to `demo_out/`.
+
+**Score a model on a benchmark-style folder.** Build a tiny fake benchmark, then run the command-line scorer on it:
+
+```bash
+python scripts/make_fake_benchmark.py
+python -m wrop_eval.cli --eval-root test_out/fake/eval --results-root test_out/fake/results --model good_model
+python -m wrop_eval.cli --eval-root test_out/fake/eval --results-root test_out/fake/results --model vanish_model
+```
+
+The first model should score about 0.997. The second, where the ball never comes back, should show `Disappearance 1.000` and score about 0.778.
+
+**Expected folder layout** for real data:
+
+```
+eval/<shard>/<task>_task/<sample_id>/scene_state_graph.json   (or trajectory.npz)
+results/<model_name>/<task>_task/<sample_id>.mp4
+```
+
+**Correlate with human scores.** With one JSON file of per-model OPS and one of per-model Elo, run the following (it needs at least 3 models):
+
+```bash
+python -m wrop_eval.validate ops_per_model.json elo_per_model.json
+```
