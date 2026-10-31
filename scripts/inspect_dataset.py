@@ -1,76 +1,110 @@
 """
-One-off utility: download the smallest task archive from the real wrop
-training corpus, extract a couple of samples, and print out exactly what
-trajectory.npz and metadata.json contain -- so wrop_eval/schema.py can be
-written against the real files instead of assumptions.
+Look at the REAL WROP file layout without downloading a whole archive.
 
+The training corpus is one big .tar per task (hundreds of MB each). This
+script streams the first tar from Hugging Face and stops as soon as it has
+read two complete samples, so only a few MB are transferred. It then prints
+what is really inside: file names, trajectory.npz arrays, metadata.json,
+and the frame count / resolution of each video.
+
+Run:  python scripts/inspect_dataset.py
+Then paste the whole output back so the loaders can be fixed to match.
 """
 import json
+import os
 import tarfile
-from pathlib import Path
 
 import numpy as np
-from huggingface_hub import HfApi, hf_hub_download
 
 REPO_ID = "Hokin/object-permanence"
-DATA_DIR = Path("data")
+OUT_DIR = os.path.join("data", "inspect")
 
 
-def pick_smallest_task_tar():
-    api = HfApi()
-    files = api.list_repo_files(REPO_ID, repo_type="dataset")
-    tar_files = [f for f in files if f.endswith(".tar")]
-    print(f"Found {len(tar_files)} task archives.")
-    infos = api.get_paths_info(REPO_ID, tar_files, repo_type="dataset")
-    infos.sort(key=lambda i: i.size)
-    smallest = infos[0]
-    print(f"Smallest: {smallest.path}  ({smallest.size / 1e6:.1f} MB)")
-    return smallest.path
+def extract_first_samples(fileobj, out_dir, n_samples=2, show_first=15):
+    """Stream a tar from `fileobj`, extract the first `n_samples` directories
+    of files, and stop. Returns (list_of_member_names_seen, [extracted dirs])."""
+    os.makedirs(out_dir, exist_ok=True)
+    seen_names, chosen = [], []
+    with tarfile.open(fileobj=fileobj, mode="r|") as tf:  # streaming mode
+        for member in tf:
+            if len(seen_names) < show_first:
+                seen_names.append(member.name)
+            if not member.isfile():
+                continue
+            folder = os.path.dirname(member.name)
+            if folder not in chosen:
+                if len(chosen) >= n_samples:
+                    break  # a third folder started: we have enough
+                chosen.append(folder)
+            tf.extract(member, out_dir)
+    return seen_names, [os.path.join(out_dir, c) for c in chosen]
+
+
+def describe_array(name, arr):
+    line = f"  {name}: shape={getattr(arr, 'shape', None)} dtype={arr.dtype}"
+    print(line)
+    if arr.dtype == object:
+        flat = arr.ravel()
+        print(f"      object array, first element type: {type(flat[0]).__name__}")
+        print(f"      first element (truncated): {str(flat[0])[:300]}")
+    elif arr.size <= 12:
+        print(f"      values: {arr.tolist()}")
+    else:
+        print(f"      first row/value: {np.asarray(arr).reshape(arr.shape[0], -1)[0][:6].tolist()}")
+
+
+def describe_video(path):
+    import cv2
+    cap = cv2.VideoCapture(path)
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    print(f"  {os.path.basename(path)}: {n} frames, {w}x{h}, {fps:.1f} fps")
+
+
+def describe_sample(sample_dir):
+    print(f"\n=== {sample_dir} ===")
+    for fname in sorted(os.listdir(sample_dir)):
+        full = os.path.join(sample_dir, fname)
+        print(f"  file: {fname}  ({os.path.getsize(full)} bytes)")
+    for fname in sorted(os.listdir(sample_dir)):
+        full = os.path.join(sample_dir, fname)
+        if fname.endswith(".npz"):
+            print(f"\n--- {fname} arrays ---")
+            with np.load(full, allow_pickle=True) as npz:
+                for k in npz.files:
+                    describe_array(k, npz[k])
+        elif fname.endswith(".json"):
+            print(f"\n--- {fname} ---")
+            with open(full) as f:
+                data = json.load(f)
+            print(json.dumps(data, indent=2)[:2500])
+        elif fname.endswith(".txt"):
+            print(f"\n--- {fname} (first 300 chars) ---")
+            print(open(full, encoding="utf-8", errors="replace").read()[:300])
+        elif fname.endswith(".mp4"):
+            print(f"\n--- {fname} ---")
+            describe_video(full)
 
 
 def main():
-    DATA_DIR.mkdir(exist_ok=True)
-    tar_path_in_repo = pick_smallest_task_tar()
+    from huggingface_hub import HfApi, HfFileSystem
 
-    local_tar = hf_hub_download(
-        repo_id=REPO_ID, repo_type="dataset",
-        filename=tar_path_in_repo, local_dir=str(DATA_DIR),
-    )
-    print(f"Downloaded to {local_tar}")
+    files = HfApi().list_repo_files(REPO_ID, repo_type="dataset")
+    tars = sorted(f for f in files if f.endswith(".tar"))
+    print(f"Found {len(tars)} .tar files. Streaming the first: {tars[0]}")
 
-    extract_dir = DATA_DIR / "extracted"
-    extract_dir.mkdir(exist_ok=True)
-    with tarfile.open(local_tar) as tf:
-        members = tf.getmembers()
-        # Only pull out the first 2 sample folders' worth of files, not all 10,000.
-        first_two_dirs = sorted({m.name.split("/")[2] for m in members
-                                  if len(m.name.split("/")) > 3})[:2]
-        print(f"Extracting samples: {first_two_dirs}")
-        wanted = [m for m in members
-                  if len(m.name.split("/")) > 3 and m.name.split("/")[2] in first_two_dirs]
-        tf.extractall(extract_dir, members=wanted)
+    fs = HfFileSystem()
+    with fs.open(f"datasets/{REPO_ID}/{tars[0]}", "rb") as f:
+        names, dirs = extract_first_samples(f, OUT_DIR)
 
-    sample_dirs = sorted(extract_dir.glob("*/*/*"))
-    sample_dirs = [d for d in sample_dirs if d.is_dir()]
-    print(f"\nExtracted sample dirs: {sample_dirs}")
-
-    sample = sample_dirs[0]
-    print(f"\n=== Files in {sample} ===")
-    for f in sorted(sample.iterdir()):
-        print(" ", f.name, f.stat().st_size, "bytes")
-
-    npz_path = sample / "trajectory.npz"
-    if npz_path.exists():
-        print(f"\n=== trajectory.npz keys ===")
-        with np.load(npz_path, allow_pickle=True) as npz:
-            for k in npz.files:
-                arr = npz[k]
-                print(f"  {k}: shape={getattr(arr, 'shape', None)} dtype={arr.dtype}")
-
-    meta_path = sample / "metadata.json"
-    if meta_path.exists():
-        print(f"\n=== metadata.json ===")
-        print(json.dumps(json.load(open(meta_path)), indent=2)[:3000])
+    print("\nFirst entries in the tar (shows the folder structure):")
+    for n in names:
+        print("  ", n)
+    for d in dirs:
+        describe_sample(d)
 
 
 if __name__ == "__main__":
