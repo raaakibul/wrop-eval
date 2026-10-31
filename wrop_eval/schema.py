@@ -85,48 +85,53 @@ def load_scene_state_graph(path: str) -> GroundTruthTrajectory:
     return GroundTruthTrajectory(fps=fps, frame_start=frame_start,
                                   frame_end=frame_end, objects=tracks)
     
-
-
 def _from_npz_dict(npz: np.lib.npyio.NpzFile) -> GroundTruthTrajectory:
+    """Adapter for the REAL trajectory.npz layout, confirmed by streaming a
+    sample from the dataset (MuJoCo-style arrays):
+
+        xpos         (n_frames, n_bodies, 3)  world position of each body
+        xquat        (n_frames, n_bodies, 4)  orientation quaternion
+        qpos, qvel   (n_frames, ...)          generalized coordinates
+        body_names   (n_bodies,)  body_roles, body_shapes, body_colors
+        is_target    (n_bodies,) bool
+        fps, frame_start, frame_end           scalars
+
+    Only the fields the metric needs are read.
+    """
     keys = set(npz.files)
-
-    # Convention A: explicit position tensor + name list.
-    pos_key = next((k for k in ("positions", "loc", "locations") if k in keys), None)
-    name_key = next((k for k in ("object_names", "names", "objects") if k in keys), None)
-    fps = int(npz["fps"]) if "fps" in keys else 24
-
-    if pos_key is not None:
-        pos = np.asarray(npz[pos_key])  # expected (n_frames, n_objects, 3)
-        names = (list(npz[name_key]) if name_key is not None
-                 else [f"obj_{i}" for i in range(pos.shape[1])])
-        n = pos.shape[0]
-        is_target = (npz["is_target"] if "is_target" in keys
-                     else np.zeros(pos.shape[1], dtype=bool))
-        tracks = {}
-        for i, nm in enumerate(names):
-            nm = nm.decode() if isinstance(nm, bytes) else str(nm)
-            tracks[nm] = ObjectTrack(
-                name=nm, loc=pos[:, i, :].astype(np.float64),
-                is_target=bool(is_target[i]) if hasattr(is_target, "__len__") else False,
-            )
-        return GroundTruthTrajectory(fps=fps, frame_start=1, frame_end=n, objects=tracks)
-
-    # Convention B (fallback): every (n_frames, 3) float array is one object's track.
-    tracks = {}
-    n = None
-    for k in npz.files:
-        arr = np.asarray(npz[k])
-        if arr.ndim == 2 and arr.shape[1] == 3 and np.issubdtype(arr.dtype, np.floating):
-            n = arr.shape[0] if n is None else n
-            tracks[k] = ObjectTrack(name=k, loc=arr.astype(np.float64))
-    if not tracks:
+    missing = {"xpos", "body_names"} - keys
+    if missing:
         raise ValueError(
-            f"trajectory.npz keys {sorted(keys)} did not match any known "
-            "layout. Patch wrop_eval.schema._from_npz_dict for your file."
+            f"trajectory.npz is missing {sorted(missing)}; it has keys "
+            f"{sorted(keys)}. Update wrop_eval.schema._from_npz_dict."
         )
-    return GroundTruthTrajectory(fps=fps, frame_start=1, frame_end=n, objects=tracks)
 
+    xpos = np.asarray(npz["xpos"], dtype=np.float64)
+    n_frames, n_bodies = xpos.shape[0], xpos.shape[1]
+    names = [str(x) for x in npz["body_names"]]
 
+    def text_column(key):
+        return [str(x) for x in npz[key]] if key in keys else [""] * n_bodies
+
+    roles = text_column("body_roles")
+    shapes = text_column("body_shapes")
+    colors_ = text_column("body_colors")
+    is_target = (np.asarray(npz["is_target"], dtype=bool) if "is_target" in keys
+                 else np.zeros(n_bodies, dtype=bool))
+    fps = int(round(float(npz["fps"]))) if "fps" in keys else 24
+    frame_start = int(npz["frame_start"]) if "frame_start" in keys else 1
+
+    tracks = {}
+    for i, name in enumerate(names):
+        key = name if name not in tracks else f"{name}#{i}"
+        tracks[key] = ObjectTrack(
+            name=key, shape=shapes[i], role=roles[i], color=colors_[i],
+            is_target=bool(is_target[i]), loc=xpos[:, i, :].copy(),
+        )
+    return GroundTruthTrajectory(
+        fps=fps, frame_start=frame_start,
+        frame_end=frame_start + n_frames - 1, objects=tracks,
+    )
 
 def load_trajectory_npz(path: str) -> GroundTruthTrajectory:
     with np.load(path, allow_pickle=True) as npz:
