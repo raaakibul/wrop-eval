@@ -20,6 +20,25 @@ REPO_ID = "Hokin/object-permanence"
 OUT_DIR = os.path.join("data", "inspect")
 
 
+class LimitedReader:
+    """Wraps a file object and stops the program if more than `limit_mb`
+    megabytes are read, so a mistake can never trigger a huge download."""
+
+    def __init__(self, fileobj, limit_mb=100):
+        self.f = fileobj
+        self.limit = limit_mb * 1024 * 1024
+        self.total = 0
+
+    def read(self, n=-1):
+        data = self.f.read(n)
+        self.total += len(data)
+        if self.total > self.limit:
+            raise RuntimeError(
+                f"Read more than {self.limit // (1024 * 1024)} MB; stopping. "
+                "Paste this message back instead of downloading more.")
+        return data
+
+
 def extract_first_samples(fileobj, out_dir, n_samples=2, show_first=15):
     """Stream a tar from `fileobj`, extract the first `n_samples` directories
     of files, and stop. Returns (list_of_member_names_seen, [extracted dirs])."""
@@ -98,7 +117,9 @@ def main():
 
     fs = HfFileSystem()
     with fs.open(f"datasets/{REPO_ID}/{tars[0]}", "rb") as f:
-        names, dirs = extract_first_samples(f, OUT_DIR)
+        reader = LimitedReader(f, limit_mb=100)
+        names, dirs = extract_first_samples(reader, OUT_DIR)
+        print(f"Data transferred: {reader.total / 1e6:.1f} MB")
 
     print("\nFirst entries in the tar (shows the folder structure):")
     for n in names:

@@ -11,3 +11,4 @@ data/
 *.mp4
 *.npz
 test_out/
+inspect_output.txt
