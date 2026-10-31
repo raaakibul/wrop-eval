@@ -147,3 +147,56 @@ scripts/
 tests/                     unit and end-to-end tests
 ```
 
+
+## Limitations
+
+### What is verified, and what is not
+
+| Verified | Not verified |
+|---|---|
+| The pipeline runs end to end on synthetic videos. | Anything on real WROP data. |
+| Each failure mode (vanishing, wrong color, position error) is detected on synthetic cases, and the ranking correct > drift > swap/vanish holds. | Whether OPS agrees with human judgments of real models. The demo's "Elo" is invented. |
+| The alignment fit no longer hides a constant continuation offset (unit-tested). | That the alignment model is adequate for WROP's real cameras. |
+| Clip geometry (60 + 60 frames, 24 fps) matches the dataset card. | The real layout of `trajectory.npz`. |
+
+The demo's correlation with a mock ranking only shows the machinery works. It is not evidence that the metric is valid.
+
+
+### Known weaknesses and assumptions
+
+**Data format**
+- The `trajectory.npz` loader guesses at array names. It has only been tested on files we made ourselves. If your real files differ, patch `_from_npz_dict` in `schema.py`.
+- We assume the model's output video covers all 120 frames, so its first 60 frames can be used to fit the alignment. If real result videos contain only the 60 continuation frames, `cli.py` and the alignment step must also track the input video.
+- The six cognitive categories come from a keyword heuristic over task names (`taxonomy.py`), not from the dataset authors' labels. Per-category results are only as meaningful as that mapping.
+
+**Scoring**
+- **The disappearance check assumes the target object is visible again in the last 20% of the clip.** That is wrong for tasks where an object stays hidden on purpose, such as one left inside a closed box. On those tasks a correct model would be penalized. This needs a per-task or per-sample "should be visible" annotation before the numbers can be trusted.
+- Identity is judged by average color alone. Two objects of the same color cannot be told apart, and shading or lighting in real renders will shift observed colors. The threshold (70 in RGB distance) was chosen from a synthetic example and needs calibrating on real frames.
+- Any predicted track that matches no ground-truth object counts as a hallucination. Tracker noise, background clutter, and one object split into two tracks all inflate this.
+- Only objects flagged as targets are scored. If none are flagged, the first object is used.
+- The gate tolerance, the soft-error scale (0.15), and the 1.0 / 0.5 hard / soft weights are untuned defaults. The gate tolerance was set on synthetic data with coordinates between 0 and 1. Real world coordinates in Blender units will behave differently.
+
+**Alignment**
+- It assumes a fixed camera that looks roughly side-on, so the world x axis and the height axis map to image x and y. The depth axis is ignored, and perspective is not modeled. Objects that barely move during the context cannot be aligned, so those samples get no soft scores.
+
+**Tracking**
+- The bundled tracker uses background subtraction and nearest-neighbor matching. It is for testing the pipeline. On photorealistic renders with shadows, clutter, or several similar objects it will fail, and a stronger tracker (SAM2, Co-Tracker) should replace it before any real study. Swapping it in only requires matching the `track_with_color` interface.
+
+**Claims**
+- The gap described in "Related work" rests on a limited search. Check for prior work before claiming novelty.
+- "OPS" is also used for other things in object-permanence research. Consider a more distinctive name before publishing.
+
+
+## Roadmap
+
+1. Run `scripts/inspect_dataset.py` on real data and fix the `trajectory.npz` loader to match.
+2. Find out what the result videos contain (60 or 120 frames) and adapt the pipeline.
+3. Add a per-sample "should be visible" signal so tasks with legitimately hidden objects are scored fairly.
+4. Replace the baseline tracker with a learned one.
+5. Score the models in the benchmark's `results/` folder and correlate per-model OPS with the human leaderboard. This is the experiment that decides whether the metric is useful.
+6. Tune thresholds and weights on a held-out set of tasks, not the ones used for the final claim.
+
+## License
+
+WROP's data and code are released under CC BY-NC 4.0, so any use of this project with that data should respect those terms. This repository contains no WROP data.
+
