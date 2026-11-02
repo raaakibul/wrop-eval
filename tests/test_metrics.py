@@ -163,3 +163,26 @@ def test_stationary_object_is_not_marked_gated():
     assert s.gated is False
     assert s.reappearance_position_error is None
     assert s.disappearance_rate == 0.0
+    
+    
+# --- real color palette ----------------------------------------------------
+
+def test_unknown_gt_color_skips_the_identity_check():
+    # Previously an unknown name fell back to gray and flagged a false swap.
+    s = score_sample("s", "t", "c", _gt(color="mystery_shade"), {"p": _pred()}, N_INPUT,
+                     pred_colors={"p": _colors(BLUE_BGR)})
+    assert s.identity_swap_rate == 0.0
+
+
+def test_navy_object_with_navy_pixels_is_not_a_swap():
+    navy_bgr = (128, 46, 26)  # RGB (26, 46, 128) reversed to OpenCV order
+    s = score_sample("s", "t", "c", _gt(color="navy"), {"p": _pred()}, N_INPUT,
+                     pred_colors={"p": _colors(navy_bgr)})
+    assert s.identity_swap_rate == 0.0
+
+
+def test_navy_object_with_orange_pixels_is_a_swap():
+    orange_bgr = (26, 115, 247)
+    s = score_sample("s", "t", "c", _gt(color="navy"), {"p": _pred()}, N_INPUT,
+                     pred_colors={"p": _colors(orange_bgr)})
+    assert s.identity_swap_rate == 1.0

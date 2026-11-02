@@ -1,23 +1,40 @@
-"""colors.py: small color-name -> RGB table for matching WROP's ground-truth
-`objects[name]["color"]` string field (e.g. "red", "cobalt_blue") against
-a tracker's observed mean pixel color, for the identity-swap check.
+"""colors.py: map the color names in WROP's ground truth to RGB, for the
+identity-swap check.
+
+The 16 object colors below are copied from PALETTE in the generator
+(object_permanence/generator/core/render.py).
 """
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Optional, Tuple
 
-_TABLE = {
-    "red": (200, 30, 30), "blue": (30, 60, 200), "green": (30, 160, 60),
-    "yellow": (230, 210, 30), "orange": (230, 130, 30), "purple": (140, 40, 160),
-    "cyan": (40, 190, 200), "magenta": (200, 40, 170), "pink": (230, 130, 180),
-    "white": (235, 235, 235), "black": (25, 25, 25), "gray": (130, 130, 130),
-    "grey": (130, 130, 130), "brown": (110, 70, 40), "teal": (30, 130, 130),
-    "gold": (210, 175, 55), "silver": (190, 190, 195), "lime": (140, 220, 40),
+PALETTE = {
+    "orange": (0.97, 0.45, 0.10), "red": (0.90, 0.15, 0.15),
+    "pink": (0.96, 0.58, 0.74), "magenta": (0.85, 0.18, 0.62),
+    "purple": (0.55, 0.25, 0.80), "navy": (0.10, 0.18, 0.50),
+    "blue": (0.18, 0.40, 0.95), "cyan": (0.10, 0.72, 0.82),
+    "teal": (0.08, 0.52, 0.52), "green": (0.18, 0.68, 0.30),
+    "lime": (0.62, 0.85, 0.20), "yellow": (0.98, 0.80, 0.15),
+    "gold": (0.83, 0.62, 0.12), "brown": (0.42, 0.26, 0.14),
+    "gray": (0.45, 0.46, 0.48), "black": (0.05, 0.05, 0.06),
 }
 
-def color_name_to_rgb(name: str) -> Tuple[int, int, int]:
-    name = (name or "").lower().replace("-", "_")
-    for key, rgb in _TABLE.items():
-        if key in name:
-            return rgb
-    return (130, 130, 130)
+
+def color_name_to_rgb(name: str) -> Optional[Tuple[int, int, int]]:
+    """RGB (0-255) for a color name, or None if the name is unknown.
+
+    Returning None (instead of a made-up default) lets the caller skip the
+    identity check, rather than flag a false swap against a guessed color.
+    """
+    key = (name or "").strip().lower().replace("-", "_")
+    if not key:
+        return None
+    if key in PALETTE:
+        match = PALETTE[key]
+    else:
+        # compound names such as "dark_navy": use the first palette word found
+        found = [w for w in PALETTE if w in key.split("_")]
+        if not found:
+            return None
+        match = PALETTE[found[0]]
+    return tuple(int(round(255 * v)) for v in match)

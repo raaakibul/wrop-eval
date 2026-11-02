@@ -127,10 +127,11 @@ def score_sample(sample_id: str, task_id: str, category: str,
             if reappeared and pred_colors and m.pred_id in pred_colors and gtobj.color:
                 tail_colors = pred_colors[m.pred_id][tail_start:n]
                 tail_colors = tail_colors[~np.isnan(tail_colors).any(axis=1)]
-                if len(tail_colors):
+                expected = colors.color_name_to_rgb(gtobj.color)
+                if len(tail_colors) and expected is not None:
                     observed_bgr = tail_colors.mean(axis=0)
                     observed_rgb = observed_bgr[::-1]  # OpenCV is BGR
-                    expected_rgb = np.array(colors.color_name_to_rgb(gtobj.color), dtype=np.float64)
+                    expected_rgb = np.array(expected, dtype=np.float64)
                     dist = float(np.linalg.norm(observed_rgb - expected_rgb))
                     swap = 1.0 if dist > identity_color_thresh else 0.0
             swap_flags.append(swap)
