@@ -130,7 +130,6 @@ def test_duplicate_body_names_are_kept_apart(tmp_path):
 
 
 def test_real_sample_if_downloaded():
-    # Runs only on a machine where scripts/inspect_dataset.py was run.
     here = os.path.join(os.path.dirname(__file__), "..")
     found = glob.glob(os.path.join(here, "data", "inspect", "**", "trajectory.npz"),
                       recursive=True)
