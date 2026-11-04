@@ -3,9 +3,7 @@ Look at the REAL WROP file layout without downloading a whole archive.
 
 The training corpus is one big .tar per task (hundreds of MB each). This
 script streams the first tar from Hugging Face and stops as soon as it has
-read two complete samples, so only a few MB are transferred. It then prints
-what is really inside: file names, trajectory.npz arrays, metadata.json,
-and the frame count / resolution of each video.
+read two complete samples, so only a few MB are transferred.  
 
 Run:  python scripts/inspect_dataset.py
 Then paste the whole output back so the loaders can be fixed to match.
