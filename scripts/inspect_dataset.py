@@ -19,9 +19,6 @@ OUT_DIR = os.path.join("data", "inspect")
 
 
 class LimitedReader:
-    """Wraps a file object and stops the program if more than `limit_mb`
-    megabytes are read, so a mistake can never trigger a huge download."""
-
     def __init__(self, fileobj, limit_mb=100):
         self.f = fileobj
         self.limit = limit_mb * 1024 * 1024
