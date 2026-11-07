@@ -12,3 +12,4 @@ data/
 *.npz
 test_out/
 inspect_output.txt
+inspect_results_output.txt
